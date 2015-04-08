@@ -1,0 +1,84 @@
+SELECT
+  --imei, imsi,
+  call/launches AS call,
+  text/launches AS text,
+  instant_messaging/launches AS instant_messaging,
+  emails/launches AS emails,
+--  facebook/launches as facebook,
+--  social_other/launches as social_other,
+ (social_other+facebook)/launches as social,
+  web_browsing/launches as web_browsing,
+  camera/launches as camera,
+  gaming/launches as gaming,
+ -- paid/launches as paid,
+  --launches
+FROM (
+  SELECT
+    /* Use imsi & imei AS the unique indentifier */
+    imei, imsi,
+    /* basic phone usages: calling & texting */
+    SUM(IF(package = "com.android.dialer" OR package = "com.android.phone" OR package = "com.android.contacts", 1, 0)) AS call,
+    SUM(IF(package = "com.android.mms", 1, 0)) AS text,
+    /* social */
+    SUM(IF(package CONTAINS "com.facebook.katana", 1, 0)) AS facebook, /*facebook counts 50% of social */
+    SUM(IF(PS_category = "SOCIAL" AND package <> "com.facebook.katana", 1, 0)) AS social_other,
+    /* browsing: 97% browsing is Google Chrome*/  
+    SUM(IF(PS_category = "COMMUNICATION" AND (package = "com.android.chrome" OR LOWER(PS_appname) CONTAINS "browser"), 1, 0)) AS web_browsing,
+    /*Instant Messaging*/
+    SUM(IF(PS_category = "COMMUNICATION" AND ((LOWER(PS_appname) CONTAINS "messenger" OR LOWER(PS_appname) CONTAINS "messag" OR LOWER(PS_appname) CONTAINS "sms" OR LOWER(PS_appname) CONTAINS "text"
+    OR LOWER(PS_appname) CONTAINS "chat" OR LOWER(PS_appname) CONTAINS "skype" OR LOWER(PS_appname) CONTAINS "kik" OR LOWER(PS_appname) CONTAINS "groupme" 
+    OR LOWER(PS_appname) CONTAINS "qq" OR LOWER(PS_appname) CONTAINS "viber")), 1, 0)) AS instant_messaging,
+    /*Emails*/
+    SUM(IF(PS_category = "COMMUNICATION" AND ((LOWER(PS_appname) CONTAINS "mail" AND NOT LOWER(PS_appname) CONTAINS "voicemail") OR LOWER(PS_appname) CONTAINS "outlook" 
+    OR package = "com.android.email"), 1, 0)) AS emails,
+    /*Camera*/
+    SUM(IF(package CONTAINS "camera" OR PS_category CONTAINS "PHOTOGRAPHY" OR package ="com.motorola.MotGallery2", 1, 0)) AS camera,
+    SUM(IF(PS_category CONTAINS "GAME", 1, 0)) AS gaming,
+    SUM(IF(PS_price_cat = "paid", 1, 0)) AS paid,
+    COUNT(*) AS launches
+  FROM (
+    SELECT
+      app.package AS package,
+      dict.appname AS PS_appname,
+      dict.category AS PS_category,
+      dict.content_rating AS PS_content_rating,
+      dict.price_cat AS PS_price_cat,
+      app.imei AS imei,
+      app.imsi AS imsi
+    FROM (
+      SELECT 
+        imei, imsi, package
+      FROM 
+        TABLE_QUERY([mot-datascience:daily_appusage_warranty_dur_stg00], 'table_id >= "201501010000" AND table_id < "201502010000"')
+      WHERE
+        -- app_status = "start"
+        country = "US"
+        and product = "victara"
+    ) APP
+    JOIN EACH ( /* Take care of censoring bias: filter out devices with short life-span: Start point constraint */
+      SELECT
+        imei, imsi
+      FROM 
+        TABLE_QUERY([mot-datascience:daily_appusage_warranty_dur_stg00], 'table_id >= "201501010000" AND table_id < "201501030000"')
+      GROUP EACH BY imei, imsi
+    ) FLTR1
+    ON APP.imei = FLTR1.imei AND APP.imsi = FLTR1.imsi
+    JOIN EACH ( /* Take care of censoring bias: filter out devices with short life-span: End point constraint */
+      SELECT
+        imei, imsi
+      FROM 
+        TABLE_QUERY([mot-datascience:daily_appusage_warranty_dur_stg00], 'table_id >= "201501300000" AND table_id < "201502010000"')
+      GROUP EACH BY imei, imsi
+    ) FLTR2
+    ON APP.imei = FLTR2.imei AND APP.imsi = FLTR2.imsi
+    LEFT JOIN EACH (
+      SELECT
+        package, appname, category, content_rating, price,
+        IF(price = 0, "free", "paid") AS price_cat      
+      FROM
+        [mot-datascience:lookup_tables.playstore_apps]
+    ) DICT
+    ON APP.package = DICT.package
+  )
+  GROUP EACH BY imei, imsi
+);
