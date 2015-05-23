@@ -130,4 +130,3 @@ plt.savefig('segments.png', bbox_inches='tight')
 
 resp = deleteContext("guru-context")
 print resp
-
