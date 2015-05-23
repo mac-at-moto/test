@@ -1,3 +1,4 @@
+
 SELECT
   --imei, imsi,
   call/launches AS call,
@@ -82,3 +83,4 @@ FROM (
   )
   GROUP EACH BY imei, imsi
 );
+
